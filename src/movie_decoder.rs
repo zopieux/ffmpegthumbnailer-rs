@@ -134,9 +134,7 @@ impl MovieDecoder {
             return Err(ThumbnailerError::SeekNotAllowed);
         }
 
-        let timestamp = (AV_TIME_BASE as i64)
-            .checked_mul(seconds as i64)
-            .unwrap_or(0);
+        let timestamp = (AV_TIME_BASE as i64).checked_mul(seconds).unwrap_or(0);
 
         check_error(
             unsafe { av_seek_frame(self.format_context, -1, timestamp, 0) },
@@ -217,6 +215,8 @@ impl MovieDecoder {
         video_frame.width = unsafe { (*new_frame.as_mut_ptr()).width as u32 };
         video_frame.height = unsafe { (*new_frame.as_mut_ptr()).height as u32 };
         video_frame.line_size = unsafe { (*new_frame.as_mut_ptr()).linesize[0] as u32 };
+        video_frame.source_width = unsafe { (*self.video_codec_context).width } as u32;
+        video_frame.source_height = unsafe { (*self.video_codec_context).height } as u32;
         video_frame.source = if self.use_embedded_data {
             Some(FrameSource::Metadata)
         } else {

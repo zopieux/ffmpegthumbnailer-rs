@@ -36,6 +36,11 @@ pub enum ThumbnailerError {
     InvalidQuality(f32),
     #[error("Background task failed: {0}")]
     BackgroundTaskFailed(#[from] JoinError),
+    #[error("Unsupported file extension: {0:?}")]
+    UnsupportedExtension(std::ffi::OsString),
+    #[cfg(feature = "png")]
+    #[error("PNG encoding failed: {0}")]
+    PngEncodingError(#[from] png::EncodingError),
 }
 
 /// Enum to represent possible errors from FFMPEG library

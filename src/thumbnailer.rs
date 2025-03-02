@@ -1,8 +1,10 @@
-use crate::{film_strip_filter, MovieDecoder, ThumbnailSize, ThumbnailerError, VideoFrame};
+use crate::{
+    film_strip_filter, MovieDecoder, OutputContainer, OutputFormat, ThumbnailSize,
+    ThumbnailerError, VideoFrame,
+};
 
 use std::{ops::Deref, path::Path};
-use tokio::{fs, task::spawn_blocking};
-use webp::Encoder;
+use tokio::task::spawn_blocking;
 
 /// `Thumbnailer` struct holds data from a `ThumbnailerBuilder`, exposing methods
 /// to generate thumbnails from video files.
@@ -12,34 +14,59 @@ pub struct Thumbnailer {
 }
 
 impl Thumbnailer {
+    /// Processes an video input file and outputs bytes for a specific format.
+    pub async fn process_to_bytes(
+        &self,
+        video_file_path: impl AsRef<Path>,
+        output_format: OutputFormat,
+    ) -> Result<OutputContainer, ThumbnailerError> {
+        let frame = self.process_to_video_frame(video_file_path).await?;
+        match output_format {
+            #[cfg(feature = "webp")]
+            OutputFormat::Webp => self.process_to_webp_bytes(frame).await,
+            #[cfg(feature = "png")]
+            OutputFormat::Png => self.process_to_png_bytes(frame).await,
+        }
+    }
+
     /// Processes an video input file and write to file system a thumbnail with webp format
+    #[cfg(feature = "fs")]
     pub async fn process(
         &self,
         video_file_path: impl AsRef<Path>,
         output_thumbnail_path: impl AsRef<Path>,
     ) -> Result<(), ThumbnailerError> {
-        fs::write(
-            output_thumbnail_path,
-            &*self.process_to_webp_bytes(video_file_path).await?,
-        )
-        .await
-        .map_err(Into::into)
+        let format = match output_thumbnail_path.as_ref().extension() {
+            #[cfg(feature = "webp")]
+            Some(ext) if ext.eq_ignore_ascii_case("webp") => OutputFormat::Webp,
+            #[cfg(feature = "png")]
+            Some(ext) if ext.eq_ignore_ascii_case("png") => OutputFormat::Png,
+            Some(ext) => return Err(ThumbnailerError::UnsupportedExtension(ext.to_owned())),
+            None => {
+                return Err(ThumbnailerError::UnsupportedExtension(
+                    "<empty>".to_owned().into(),
+                ))
+            }
+        };
+        let bytes = self.process_to_bytes(video_file_path, format).await?.bytes;
+        tokio::fs::write(output_thumbnail_path, bytes)
+            .await
+            .map_err(Into::into)
     }
 
     /// Processes an video input file and returns a webp encoded thumbnail as bytes
-    pub async fn process_to_webp_bytes(
+    pub async fn process_to_video_frame(
         &self,
         video_file_path: impl AsRef<Path>,
-    ) -> Result<Vec<u8>, ThumbnailerError> {
+    ) -> Result<VideoFrame, ThumbnailerError> {
         let video_file_path = video_file_path.as_ref().to_path_buf();
         let prefer_embedded_metadata = self.builder.prefer_embedded_metadata;
         let seek_percentage = self.builder.seek_percentage;
         let size = self.builder.size;
         let maintain_aspect_ratio = self.builder.maintain_aspect_ratio;
         let with_film_strip = self.builder.with_film_strip;
-        let quality = self.builder.quality;
 
-        spawn_blocking(move || -> Result<Vec<u8>, ThumbnailerError> {
+        spawn_blocking(move || -> Result<VideoFrame, ThumbnailerError> {
             let mut decoder = MovieDecoder::new(video_file_path, prefer_embedded_metadata)?;
             // We actually have to decode a frame to get some metadata before we can start decoding for real
             decoder.decode_video_frame()?;
@@ -59,15 +86,47 @@ impl Thumbnailer {
                 film_strip_filter(&mut video_frame);
             }
 
-            // Type WebPMemory is !Send, which makes the Future in this function !Send,
-            // this make us `deref` to have a `&[u8]` and then `to_owned` to make a Vec<u8>
-            // which implies on a unwanted clone...
-            Ok(
-                Encoder::from_rgb(&video_frame.data, video_frame.width, video_frame.height)
+            Ok(video_frame)
+        })
+        .await?
+    }
+
+    #[cfg(feature = "webp")]
+    async fn process_to_webp_bytes(
+        &self,
+        video_frame: VideoFrame,
+    ) -> Result<OutputContainer, ThumbnailerError> {
+        let quality = self.builder.quality;
+        // Type WebPMemory is !Send, which makes the Future in this function !Send,
+        // this make us `deref` to have a `&[u8]` and then `to_owned` to make a Vec<u8>
+        // which implies on a unwanted clone...{
+        spawn_blocking(move || {
+            let bytes =
+                webp::Encoder::from_rgb(&video_frame.data, video_frame.width, video_frame.height)
                     .encode(quality)
                     .deref()
-                    .to_vec(),
-            )
+                    .to_vec();
+            Ok(OutputContainer::from(&video_frame, bytes))
+        })
+        .await?
+    }
+
+    #[cfg(feature = "png")]
+    async fn process_to_png_bytes(
+        &self,
+        video_frame: VideoFrame,
+    ) -> Result<OutputContainer, ThumbnailerError> {
+        spawn_blocking(move || {
+            let buf: Vec<u8> = Vec::new();
+            let mut writer = std::io::BufWriter::new(buf);
+            let mut encoder = png::Encoder::new(&mut writer, video_frame.width, video_frame.height);
+            encoder.set_color(png::ColorType::Rgb);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder
+                .write_header()?
+                .write_image_data(&video_frame.data)?;
+            let bytes = writer.into_inner().unwrap();
+            Ok(OutputContainer::from(&video_frame, bytes))
         })
         .await?
     }

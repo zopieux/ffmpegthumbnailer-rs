@@ -1,22 +1,28 @@
 [package]
 name = "ffmpegthumbnailer-rs"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Ericson Soares <ericson.ds999@gmail.com>"]
 edition = "2021"
 readme = "README.md"
-description = "A simple library to generate video thumbnails using ffmpeg with the webp format"
+description = "A simple library to generate video thumbnails using ffmpeg, encoded to webp or png"
 license = "MIT"
 rust-version = "1.64.0"
 resolver = "2"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["fs", "webp"]
+fs = ["tokio/fs"]
+webp = ["dep:webp"]
+png = ["dep:png"]
 
 [dependencies]
-ffmpeg-sys-next = "5.1.1"
-thiserror = "1.0.35"
-webp = "0.2.2"
-tokio = { version = "1.21.1", features = ["fs"] }
+ffmpeg-sys-next = "7.1.0"
+thiserror = "2.0.11"
+webp = { version = "0.3.0", optional = true }
+png = { version = "0.17.16", optional = true }
+tokio = { version = "1.43.0", features = ["rt"] }
 
 [dev-dependencies]
+ffmpegthumbnailer-rs = { path = ".", features = ["fs", "webp", "png"] }
 tempfile = "3.3.0"
-tokio = { version = "1.21.1", features = ["fs", "rt", "macros"] }
+tokio = { version = "1.43.0", features = ["fs", "rt", "macros"] }
