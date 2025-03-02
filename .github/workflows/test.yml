@@ -1,0 +1,23 @@
+name: "Test, format, clippy"
+
+on:
+  push:
+
+jobs:
+  test:
+    name: "Test, format, clippy"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72
+        with:
+          extra_nix_config: sandbox = true
+      - run: >
+          nix develop --command
+          cargo test --all-features
+      - run: >
+          nix develop --command
+          cargo fmt --all --check
+      - run: >
+          nix develop --command
+          cargo clippy --no-deps --all-targets --all-features
