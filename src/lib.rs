@@ -110,7 +110,7 @@ mod tests {
     use tempfile::tempdir;
     use tokio::fs;
 
-    fn get_input_filenames() -> [&'static std::path::Path; 9] {
+    fn get_input_filenames() -> [&'static std::path::Path; 11] {
         [
             Path::new("video_01.mp4"),
             Path::new("video_02.mov"),
@@ -121,6 +121,8 @@ mod tests {
             Path::new("video_07.mp4"),
             Path::new("video_08.mov"),
             Path::new("video_09.MP4"),
+            Path::new("video_10.mp4"),
+            Path::new("video_11.mp4"),
         ]
     }
 

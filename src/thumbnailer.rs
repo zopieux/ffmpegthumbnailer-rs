@@ -86,6 +86,12 @@ impl Thumbnailer {
                 film_strip_filter(&mut video_frame);
             }
 
+            crop_rgb_in_place(
+                &mut video_frame.data,
+                video_frame.width as usize,
+                video_frame.height as usize,
+            );
+
             Ok(video_frame)
         })
         .await?
@@ -222,4 +228,35 @@ impl ThumbnailerBuilder {
     pub fn build(self) -> Thumbnailer {
         Thumbnailer { builder: self }
     }
+}
+
+// Crops 'data' RGB data when ffmpeg has padded it to divisible by 2.
+fn crop_rgb_in_place(data: &mut Vec<u8>, width: usize, height: usize) {
+    let target_size = width * height * 3;
+    let data_len = data.len();
+
+    // If dimensions are already divisible by 2, nothing to do.
+    if data_len == target_size {
+        return;
+    }
+
+    // Bottom-padded: we can just truncate. This shouldn't happen.
+    if data_len % (width * 3) == 0 {
+        data.truncate(target_size);
+        return;
+    }
+
+    // Right-padded: we need to compress the rows.
+    let padded_w = data_len / (height * 3);
+    let mut write_idx = 0;
+    for y in 0..height {
+        let row_start = y * padded_w * 3;
+        if write_idx != row_start {
+            for i in 0..(width * 3) {
+                data[write_idx + i] = data[row_start + i];
+            }
+        }
+        write_idx += width * 3;
+    }
+    data.truncate(target_size);
 }
